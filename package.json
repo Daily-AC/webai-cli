@@ -1,0 +1,16 @@
+{
+  "name": "webai-cli",
+  "version": "0.1.0",
+  "description": "Reverse-engineered CLI for Grok / ChatGPT / Claude / Gemini / DeepSeek web chat APIs",
+  "type": "module",
+  "bin": {
+    "webai": "./bin/webai.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin",
+    "src"
+  ]
+}
