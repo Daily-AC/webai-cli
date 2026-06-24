@@ -101,12 +101,12 @@ const INSTALL_HOOK = `
 })()
 `;
 
-export async function ensureSession(adapter) {
+export async function ensureSession(adapter, { url } = {}) {
   const session = process.env.WEBAI_SESSION || `webai-${adapter.id}`;
-  const tabId = openUrl(session, adapter.url);
+  const tabId = openUrl(session, url || adapter.url);
   evalInTab(session, tabId, INSTALL_HOOK);
   if (adapter.installExtraHook) evalInTab(session, tabId, adapter.installExtraHook);
-  for (let i = 0; i < 24; i++) {
+  for (let i = 0; i < 50; i++) {
     const ready = evalInTab(session, tabId, adapter.readyCheck());
     if (ready && ready.ready) return { session, tabId, helpers: makeHelpers(session, tabId) };
     await new Promise((r) => setTimeout(r, 500));
