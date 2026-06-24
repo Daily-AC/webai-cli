@@ -34,6 +34,27 @@ webai detail <site> <id-or-url>     # transcript of one conversation
 
 `<site>` is one of: `grok`, `chatgpt`, `claude`, `gemini`, `deepseek`.
 
+### Media generation (Gemini)
+
+Generate video (Veo) and images, downloading the result locally:
+
+```bash
+# Text -> image (synchronous)
+webai image gemini "a red maple leaf on still water" --out ./leaf.png
+
+# Text -> video (async: submit returns a job id, status downloads when ready)
+webai video gemini submit "a paper boat down a rainy gutter"   # -> <job-id>
+webai video gemini status <job-id> --out ./boat.mp4
+
+# Image + prompt -> video (animate a photo)
+webai video gemini submit "gentle morning light, slow push-in" --image ./photo.jpg
+webai video gemini status <job-id> --out ./out.mp4
+```
+
+Flags: `--image <path>` (reference image for image→video), `--out <path>` (file or
+dir), `--once` (one-shot non-blocking `status` check; exit 3 = still generating),
+`--json`. Requires the Gemini account to have Veo/video access.
+
 Common flags:
 - `--json` — JSON output
 - `--verbose` — print site / conversationId / model on stderr (for `ask`)
