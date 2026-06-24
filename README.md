@@ -55,6 +55,15 @@ Flags: `--image <path>` (reference image for image→video), `--out <path>` (fil
 dir), `--once` (one-shot non-blocking `status` check; exit 3 = still generating),
 `--json`. Requires the Gemini account to have Veo/video access.
 
+#### `gemini-media` skill (Claude Code / Codex)
+
+`skills/gemini-media/` wraps these commands as a skill. Install by symlinking it
+into your skills dir:
+
+```bash
+ln -s "$PWD/skills/gemini-media" ~/.claude/skills/gemini-media
+```
+
 Common flags:
 - `--json` — JSON output
 - `--verbose` — print site / conversationId / model on stderr (for `ask`)
