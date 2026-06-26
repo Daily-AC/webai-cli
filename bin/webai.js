@@ -55,6 +55,7 @@ function parseArgs(argv) {
     else if (a === '--image') args.image = argv[++i];
     else if (a === '--out') args.out = argv[++i];
     else if (a === '--model') args.model = argv[++i];
+    else if (a === '--aspect') args.aspect = argv[++i];
     else if (a === '--once') args.once = true;
     else if (a === '-h' || a === '--help') args.help = true;
     else args.positional.push(a);

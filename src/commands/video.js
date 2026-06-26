@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { ensureSession, captureNext, evalSession } from '../core/session.js';
 import { openUrl, runOpencli } from '../core/opencli.js';
-import { geminiMedia, stageImage, pollMedia } from '../sites/gemini-media.js';
+import { geminiMedia, stageImage, setAspect, pollMedia } from '../sites/gemini-media.js';
 import { downloadViaClick, moveTo } from '../core/download.js';
 
 const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' };
@@ -42,6 +42,11 @@ async function submit(args) {
     const ext = extname(args.image).toLowerCase();
     await stageImage(session, tabId, buf.toString('base64'), basename(args.image), MIME[ext] || 'application/octet-stream');
   }
+
+  // The aspect-ratio chip only appears after an image is staged, and resets
+  // to Landscape on every /videos navigation, so set it once the chip is in
+  // the DOM but before submitting the prompt.
+  if (args.aspect) await setAspect(session, tabId, args.aspect);
 
   // Fill the prompt, then capture StreamGenerate (confirms submit / surfaces errors).
   const cap = await captureNext(session, tabId, {
