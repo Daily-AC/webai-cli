@@ -52,31 +52,55 @@ function newChatJs() {
   return `(() => { if (!/^\\/app\\/?$/.test(location.pathname)) location.href = '${URL}'; return true; })()`;
 }
 
-// Locate (and tag) the reference-image button in the video composer: the first
-// button with no aria-label/text sitting in the aspect-ratio row.
+// Locate (and tag) the reference-image button in the video composer.
+//
+// Late-2026 UI revision: the aspect-ratio row was removed. The reference-image
+// uploader is now a dedicated `<input-companion-uploader>` containing a
+// `[xapfileselectortrigger]` directive — when clicked it creates a hidden
+// `<input type=file name=Filedata>` and `.click()`s it (our INSTALL_EXTRA_HOOK
+// swallows that click and tags the resulting input).
 function tagImageButtonJs() {
   return `(() => {
-    const aspect = Array.from(document.querySelectorAll('button'))
-      .find((b) => /Landscape|Portrait|16:9|9:16|Square/.test(b.textContent || ''));
-    let row = aspect && aspect.parentElement;
-    for (let i = 0; i < 4 && row; i++) { if (row.querySelectorAll('button').length >= 2) break; row = row.parentElement; }
-    const btn = row && Array.from(row.querySelectorAll('button'))
-      .find((b) => !(b.textContent || '').trim() && !b.getAttribute('aria-label'));
-    if (!btn) return { ok: false };
+    const trig = document.querySelector('input-companion-uploader [xapfileselectortrigger]');
+    if (!trig) return { ok: false, reason: 'no-trigger' };
+    const btn = trig.querySelector('button') || trig;
     btn.setAttribute('data-webai-imgbtn', '1');
     return { ok: true };
   })()`;
 }
 
-// Inject real file bytes (base64) onto the captured <input type=file> via a
-// DataTransfer, then fire input/change so the app uploads it. We can't use
-// opencli's `upload` command (its evaluateWithArgs double-declares a marker var
-// in v1.8.4) and the native picker is suppressed by INSTALL_EXTRA_HOOK.
-function injectFileJs(base64, name, mime) {
+// Push one base64 chunk into a window buffer. Splitting the upload into many
+// small evals is required because the full base64 of a 1080×1920 PNG (~3 MB)
+// overflows macOS ARG_MAX (1 MB) when passed as a single opencli eval argv —
+// the exec is killed before opencli even starts and spawnSync returns
+// `status: null`. opencli's native `upload` command would dodge this, but
+// v1.8.4 still throws `SyntaxError: Identifier 'markerAttr' has already been
+// declared` on file inputs, so chunked eval is the only path that works.
+function pushChunkJs(chunk, idx) {
   return `(() => {
-    const inp = document.querySelector('[data-webai-fi]') || window.__capturedFI;
+    if (${idx} === 0) window.__webaiUp = { chunks: [] };
+    window.__webaiUp.chunks.push(${JSON.stringify(chunk)});
+    return { n: window.__webaiUp.chunks.length };
+  })()`;
+}
+
+// Commit the assembled chunks onto the captured <input type=file> via a
+// DataTransfer, then fire input/change so the app uploads it. The native
+// picker is suppressed by INSTALL_EXTRA_HOOK — but the late-2026 video
+// composer (xapfileselectortrigger directive) appends its file input to the
+// DOM via `dispatchEvent('click')` rather than `.click()`, so the hook can't
+// tag it. Fall back to locating it directly by the `Filedata` name the
+// directive assigns.
+function commitFileJs(name, mime) {
+  return `(() => {
+    const inp = document.querySelector('[data-webai-fi]')
+      || window.__capturedFI
+      || document.querySelector('input-companion-uploader input[type=file]')
+      || document.querySelector('input[type=file][name="Filedata"]');
     if (!inp) return { ok: false, reason: 'no-file-input' };
-    const bin = atob(${JSON.stringify(base64)});
+    const all = (window.__webaiUp && window.__webaiUp.chunks || []).join('');
+    if (!all) return { ok: false, reason: 'no-chunks' };
+    const bin = atob(all);
     const arr = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
     const f = new File([arr], ${JSON.stringify(name)}, { type: ${JSON.stringify(mime)} });
@@ -85,7 +109,8 @@ function injectFileJs(base64, name, mime) {
     inp.files = dt.files;
     inp.dispatchEvent(new Event('input', { bubbles: true }));
     inp.dispatchEvent(new Event('change', { bubbles: true }));
-    return { ok: true, n: inp.files.length };
+    delete window.__webaiUp;
+    return { ok: true, n: inp.files.length, bytes: arr.length };
   })()`;
 }
 
@@ -100,6 +125,32 @@ function stagedPreviewJs() {
       .find((b) => /Send message/.test(b.getAttribute('aria-label') || ''));
     const sendOn = send ? (!send.disabled && send.getAttribute('aria-disabled') !== 'true') : false;
     return { staged: !!(img && sendOn) };
+  })()`;
+}
+
+// Open the aspect-ratio chip and click the menu item whose aria-label matches
+// the requested ratio ("Portrait (9:16)" / "Landscape (16:9)" / "Square (1:1)").
+// The chip resets to Landscape on every /videos load, so we set this per-submit
+// rather than rely on session memory.
+function openAspectMenuJs() {
+  return `(() => {
+    const chip = Array.from(document.querySelectorAll('input-companion-chip, button'))
+      .find((c) => /Landscape|Portrait|Square|16:9|9:16|1:1/.test(c.textContent || ''));
+    if (!chip) return { ok: false, reason: 'no-chip' };
+    const btn = chip.matches('button') ? chip : chip.querySelector('button');
+    if (!btn) return { ok: false, reason: 'no-chip-btn' };
+    btn.setAttribute('data-webai-aspect-chip', '1');
+    return { ok: true, current: (chip.textContent || '').trim() };
+  })()`;
+}
+
+function selectAspectJs(label) {
+  return `(() => {
+    const opt = Array.from(document.querySelectorAll('[aria-label]'))
+      .find((e) => (e.getAttribute('aria-label') || '').trim() === ${JSON.stringify(label)});
+    if (!opt) return { ok: false, reason: 'no-option' };
+    opt.click();
+    return { ok: true };
   })()`;
 }
 
@@ -120,12 +171,17 @@ function conversationIdJs() {
 }
 
 // On the conversation page, report whether the video is ready and its src.
+// The failure phrasings Gemini surfaces are wide — "can't make videos",
+// "can't generate", "couldn't create", "this isn't something I can do",
+// "dangerous situations", "safety", etc. The matcher casts wide enough to
+// fail fast rather than chew through the full 10-min poll timeout when the
+// model refuses a prompt.
 function videoStatusJs() {
   return `(() => {
     const v = document.querySelector('video[src*="usercontent"], video[src*="googleusercontent"]');
     const dl = !!document.querySelector('button[aria-label="Download video"]');
     const txt = (document.body.innerText || '');
-    const failed = /can'?t (create|generate)|couldn'?t (create|generate)|violates|safety|blocked|something went wrong/i.test(txt);
+    const failed = /\\bcan'?t (make|create|generate|help)\\b|couldn'?t (create|generate|make)|isn'?t something I can|violates|safety|blocked|dangerous situations?|something went wrong/i.test(txt);
     return { ready: !!(v && dl), videoUrl: v ? v.src : null, failed };
   })()`;
 }
@@ -160,7 +216,10 @@ export const geminiMedia = {
   modeUrl: (mode) => MODE_URL[mode],
   // JS builders, used by the command layer via evalSession.
   tagImageButtonJs,
-  injectFileJs,
+  pushChunkJs,
+  commitFileJs,
+  openAspectMenuJs,
+  selectAspectJs,
   findSendButtonJs,
   conversationIdJs,
   videoStatusJs,
@@ -170,10 +229,14 @@ export const geminiMedia = {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// ~500 KB per chunk leaves ample headroom under the ~1 MB macOS ARG_MAX once
+// the rest of the opencli argv + JSON escaping is added.
+const CHUNK_BYTES = 500_000;
+
 // Stage a reference image into the (video) composer and wait for its resumable
 // upload to finish before the prompt is submitted.
 export async function stageImage(session, tabId, base64, name, mime) {
-  // The aspect-ratio toolbar (and its reference-image button) renders a beat
+  // The composer toolbar (and its reference-image trigger) renders a beat
   // after the composer itself, so poll for it before tagging.
   let tagged = false;
   for (let i = 0; i < 30; i++) {
@@ -187,7 +250,14 @@ export async function stageImage(session, tabId, base64, name, mime) {
   // captures. A programmatic el.click() does NOT open the picker / create input.
   runOpencli(['browser', session, 'click', '--tab', tabId, '[data-webai-imgbtn]']);
   await new Promise((r) => setTimeout(r, 800));
-  const inj = evalSession(session, tabId, injectFileJs(base64, name, mime));
+  // Push the base64 in chunks (see pushChunkJs comment for the ARG_MAX rationale).
+  for (let i = 0; i < base64.length; i += CHUNK_BYTES) {
+    const idx = Math.floor(i / CHUNK_BYTES);
+    const chunk = base64.slice(i, i + CHUNK_BYTES);
+    const r = evalSession(session, tabId, pushChunkJs(chunk, idx));
+    if (!r || typeof r.n !== 'number') throw new Error(`gemini: failed to push image chunk ${idx}`);
+  }
+  const inj = evalSession(session, tabId, commitFileJs(name, mime));
   if (!inj || !inj.ok) throw new Error(`gemini: failed to attach image (${inj?.reason || 'unknown'})`);
   // Wait until the upload finishes and the composer shows the reference-image
   // preview (a blob: <img>) — the reliable readiness signal. The resumable
@@ -199,6 +269,30 @@ export async function stageImage(session, tabId, base64, name, mime) {
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error('gemini: timed out waiting for the reference image to upload');
+}
+
+const ASPECT_LABELS = {
+  '9:16': 'Portrait (9:16)',
+  'portrait': 'Portrait (9:16)',
+  '16:9': 'Landscape (16:9)',
+  'landscape': 'Landscape (16:9)',
+  '1:1': 'Square (1:1)',
+  'square': 'Square (1:1)',
+};
+
+// Click the aspect-ratio chip and pick the requested option. Best-effort: if
+// the chip layout changes we log and continue, the resulting video just falls
+// back to whatever default Veo uses.
+export async function setAspect(session, tabId, aspect) {
+  if (!aspect) return;
+  const label = ASPECT_LABELS[aspect.toLowerCase()] || aspect;
+  const open = evalSession(session, tabId, geminiMedia.openAspectMenuJs());
+  if (!open || !open.ok) return;
+  if ((open.current || '').includes(label.split(' ')[0])) return; // already set
+  runOpencli(['browser', session, 'click', '--tab', tabId, '[data-webai-aspect-chip]']);
+  await sleep(400);
+  evalSession(session, tabId, geminiMedia.selectAspectJs(label));
+  await sleep(300);
 }
 
 export async function pollMedia(session, tabId, kind, { timeoutMs = 600_000, intervalMs = 4000 } = {}) {
