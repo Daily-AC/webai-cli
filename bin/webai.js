@@ -5,6 +5,8 @@ import { history } from '../src/commands/history.js';
 import { detail } from '../src/commands/detail.js';
 import { video } from '../src/commands/video.js';
 import { image } from '../src/commands/image.js';
+import { auth } from '../src/commands/auth.js';
+import { exitCodeFor } from '../src/errors.js';
 import { SITE_IDS } from '../src/sites/index.js';
 
 const USAGE = `webai — reverse-engineered CLI for chat web apps
@@ -14,9 +16,10 @@ Usage:
   webai stream <site> <prompt...>      Send a prompt, stream the answer
   webai history <site>                 List recent conversations from the sidebar
   webai detail <site> <id-or-url>      Print transcript of a single conversation
-  webai video gemini submit "<p>"      Start a Veo video (add --image for image->video)
+  webai video gemini submit "<p>"      Start a Veo video (direct HTTP)
   webai video gemini status <job-id>   Poll a video job; download mp4 when ready
-  webai image gemini "<prompt>"        Generate an image and download it
+  webai image gemini "<prompt>"        Generate an image and download it (direct HTTP)
+  webai auth import chrome             Import .google.com cookies from Chrome
 
 Sites: ${SITE_IDS.join(', ')}
 
@@ -54,6 +57,7 @@ function parseArgs(argv) {
     else if (a === '--limit') args.limit = argv[++i];
     else if (a === '--image') args.image = argv[++i];
     else if (a === '--out') args.out = argv[++i];
+    else if (a === '--profile') args.profile = argv[++i];
     else if (a === '--model') args.model = argv[++i];
     else if (a === '--aspect') args.aspect = argv[++i];
     else if (a === '--once') args.once = true;
@@ -79,6 +83,7 @@ async function main() {
       case 'detail':  await detail(args);  break;
       case 'video':   await video(args);   break;
       case 'image':   await image(args);   break;
+      case 'auth':    await auth(args);    break;
       case 'sites':   process.stdout.write(SITE_IDS.join('\n') + '\n'); break;
       default:
         process.stderr.write(`webai: unknown command "${cmd}"\n\n${USAGE}`);
@@ -86,7 +91,7 @@ async function main() {
     }
   } catch (e) {
     process.stderr.write(`webai ${cmd}: ${e.message || e}\n`);
-    process.exit(1);
+    process.exit(exitCodeFor(e));
   }
 }
 
