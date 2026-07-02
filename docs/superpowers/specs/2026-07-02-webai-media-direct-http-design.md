@@ -57,11 +57,16 @@ bin/webai.js
 
 ### 4.2 凭据仓库 `src/auth/store.js`
 
-- 单一 JSON:`~/.config/webai-cli/creds.json`(权限 600),按 provider 存。
-- **凭据来源(选定:手动配置 + 自动刷新)**:一次性从浏览器 devtools 拷 cookie 填入(或 `webai auth set <provider> ...`)。之后:
-  - Gemini:后台按需 `POST accounts.google.com/RotateCookies`(body `[000,"-0000000000000000000"]`)刷新 `__Secure-1PSIDTS`;每次操作前 GET `gemini.google.com/app` 抓最新 `SNlM0e`/`bl`。刷新加 60s 防抖避免 429。
-  - 即梦/豆包:`sessionid` 相对长效,失效则报明确错误提示重设。
-- **浏览器登录抓取 helper(`webai auth login <provider>`)延后**:设计上留出接口(store 提供 `set()` 供其写入),本轮不实现;需要时再单独加,不引入浏览器依赖到核心路径。
+- 单一 JSON 缓存:`~/.config/webai-cli/creds.json`(权限 600),按 provider 存,作为运行期读取源。
+- **凭据来源(按优先级,选定)**:
+  1. **从 Chrome profile 自动读(主用)** — `webai auth import chrome [--profile Default]`。macOS 下 Chrome cookie 存于 `~/Library/Application Support/Google/Chrome/<Profile>/Cookies`(SQLite),值用 AES-GCM 加密、密钥在 Keychain(`security find-generic-password -s "Chrome Safe Storage"` → PBKDF2 派生)。读对应域(`.google.com`、`jimeng.jianying.com`、`.doubao.com`)的 cookie 直接灌进 creds.json。零粘贴、复用你已有登录态。参考现成实现思路 `chrome-cookies-secure`。
+     - **风险(P0 必测)**:Chrome 新版(~v130+/2025)可能把 **App-Bound Encryption** 扩到 macOS,届时仅靠 Keychain 解不出 → 退回来源 2。运行时 Chrome 可开着(拷贝 Cookies 文件只读读取,避开 WAL 锁)。
+  2. **浏览器登录抓取(兜底,始终可用)** — `webai auth login <provider>`:自动打开该 provider 登录 URL,你登录完后从浏览器会话抓 cookie 写入 creds.json。只在首次引入浏览器(opencli/playwright),之后不需要。
+  3. **手动粘贴(逃生口)** — `webai auth set <provider> --cookie ...`,从 devtools 拷。
+- **OAuth 不采用**:OAuth 只能拿到 Google/字节**官方付费 API** 的 token(Gemini API 需 key、Seedance 走火山 Ark),与本项目复用**网页登录态 cookie** 的路线不是一回事。仅当将来选择把某 provider 改走官方 API 时才引入,不在本 spec。
+- **灌入后的刷新**:
+  - Gemini:后台按需 `POST accounts.google.com/RotateCookies`(body `[000,"-0000000000000000000"]`)headless 刷新 `__Secure-1PSIDTS`(60s 防抖避 429);或在 Chrome 仍活跃时重新 `import chrome` 取最新值。每次操作前 GET `gemini.google.com/app` 抓最新 `SNlM0e`/`bl`。
+  - 即梦/豆包:`sessionid` 相对长效,失效报明确错误并提示重新 `import`/`login`。
 
 ### 4.3 Provider 契约 `src/providers/<name>/index.js`
 
@@ -104,7 +109,7 @@ provider 内部纯函数子模块,**单独单测**:
 
 ## 6. 分阶段实施(严格按用户优先级:Gemini 主,豆包/即梦次)
 
-- **P0 地基 + 验证 spike**:`http/client`、`auth/store`、`node:test` 骨架;**用真实 cookie 实测跑通 Gemini 直连最小生图请求**,消除 TLS 指纹与 token 假设两大风险,据实测定传输后端选型。
+- **P0 地基 + 验证 spike**:`http/client`、`auth/store`、`node:test` 骨架;三件事实测消除风险 —— ① **Chrome cookie 自动导入**在本机是否可行(App-Bound Encryption 是否挡住,决定主用/兜底);② 拿到真实 cookie 后**跑通 Gemini 直连最小生图请求**(消除 token 假设);③ 是否被 **TLS/JA3 指纹**拦(据实测定传输后端选型)。
 - **P1**:Gemini 文生图 + Veo 文生视频(submit/poll/download,含 206 轮询)。
 - **P2**:Gemini 图生视频(`content-push.googleapis.com/upload` 纯 HTTP 传参考图)+ 图生图。
 - **P3(后续 spec)**:即梦 生图 + 常规视频(MD5 Sign + AWS4 上传);Seedance 视频接 a_bogus 纯算,Node-VM 兜底。
@@ -128,5 +133,5 @@ provider 内部纯函数子模块,**单独单测**:
 
 ## 9. 待确认(默认已选,可推翻)
 
-- 凭据来源:**手动配置 + 自动刷新**(§4.2)。若你更想要"从 Chrome profile 自动读"或"一次性浏览器登录抓取",可改。
+- 凭据来源:**① 从 Chrome profile 自动读(主)→ ② 浏览器登录抓取(兜底)→ ③ 手动粘贴**(§4.2)。OAuth 不采用(仅适用于官方付费 API,非本方案)。Chrome 自动读能否成的最终判定在 P0。
 - Gemini 传输后端:P0 spike 实测后定;默认先裸 undici。
