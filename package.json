@@ -6,6 +6,9 @@
   "bin": {
     "webai": "./bin/webai.js"
   },
+  "scripts": {
+    "test": "node --test"
+  },
   "engines": {
     "node": ">=20"
   },
