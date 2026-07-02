@@ -41,3 +41,15 @@
 3. **只返回就绪 URL**:CLI 返回 URL,下载交给上层浏览器。CLI 最轻但把硬骨头推给下游。
 
 生成链路本身已纯 headless 且好用,本 blocker 仅限"取文件字节"。
+
+## 追加实测(2026-07-02 下午,用户配合真机抓包)
+
+用户在真 Chrome 里成功下载视频并 Copy-as-cURL。对比 + 复刻测试结论:
+- 真 Chrome 下载请求 = 同一个 `download?c=` URL + cookie + origin/referer + `x-client-data`/`x-browser-validation`/整套 sec-ch-ua + `sec-fetch-site: same-site`,**无 authorization、无 x-goog-authuser**。
+- 我用 **curl-impersonate(真 Chrome BoringSSL,JA3+HTTP2 指纹)** + 全套 Chrome 头 + 新鲜 cookie + 7897 干净出口,复刻**同一 URL** → 403。
+- **用户几分钟前刚在 Chrome 成功下载的全新 token**(非过期)+ 上述全套 → 仍 403。**过期假设排除。**
+- 403↔302 对比确认:cookie 是被认成"已登录"的(403=已认证但禁止)。
+
+**最终根因判定**:`x-browser-validation`(+`x-client-data`)是 **Chrome 二进制/设备绑定的完整性签名**,由签名过的真实 Chrome 生成,headless 客户端无法伪造;`contribution.usercontent.google.com`(Scotty)对其校验。因此**纯 HTTP 下载在本机/本账号不可行**,无论 TLS 指纹/cookie 新鲜度/header 如何。真 Chrome 能下是因为它带合法的 browser-validation。
+
+**结论:采用"真实 Chrome 会话下载"作为下载后端**(生成链路保持纯 HTTP)。候选实现:重连 opencli 扩展点下载按钮,或 Playwright `launchPersistentContext` 指向 Profile 1 副本。图片链路(lh3)同理走浏览器,或后续再验 `=s0-d?alr=yes` 两跳 RPC 是否受同样加固(未测)。
