@@ -74,7 +74,10 @@ async function streamGenerate(prompt, session) {
       Referer: REFERER,
     },
     body,
-    timeoutMs: 300_000,
+    // Image generation and video *submit* both return within seconds (video is
+    // async — the first response is a placeholder chip), so a tight ceiling
+    // avoids multi-minute hangs on a stalled connection.
+    timeoutMs: 120_000,
     retries: 1,
   });
   const text = await res.text();
