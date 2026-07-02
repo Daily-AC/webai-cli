@@ -131,7 +131,9 @@ provider 内部纯函数子模块,**单独单测**:
 - 本 spec:地基(http/auth/test 骨架)+ Gemini(P0–P2)。
 - 即梦(P3)、豆包(P4)各自单独 spec + plan + 实现循环,复用本 spec 建立的传输/凭据/契约/测试骨架。
 
-## 9. 待确认(默认已选,可推翻)
+## 9. 决策(P0 实测后敲定,见 `recon/2026-07-02-gemini-direct-http-P0.md`)
 
-- 凭据来源:**① 从 Chrome profile 自动读(主)→ ② 浏览器登录抓取(兜底)→ ③ 手动粘贴**(§4.2)。OAuth 不采用(仅适用于官方付费 API,非本方案)。Chrome 自动读能否成的最终判定在 P0。
-- Gemini 传输后端:P0 spike 实测后定;默认先裸 undici。
+- 凭据来源:**① 从 Chrome profile 自动读(主)→ ② 浏览器登录抓取(兜底)→ ③ 手动粘贴**。OAuth 不采用。**P0 已验证 Chrome 导入可行**(本机 v10 加密、非 App-Bound)。
+- Gemini 传输后端:**Node 内置 `fetch`(undici)**,P0 实测未被 TLS/JA3 指纹拦,不引 curl-impersonate。
+- 反滥用 token:**确认不需要**(P0 普通生成 200 通过)。
+- 默认 profile:`Profile 1`(google/doubao/jimeng 登录齐全),命令支持 `--profile`。
