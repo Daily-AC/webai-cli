@@ -64,5 +64,5 @@
 
 - **duration/model 参数未接入**：请求体里控制视频时长/模型档位的字段名未捕获到（只见过响应里的回显），当前 `submitVideo` 不传这两项，服务端按账号默认生成（两次真实生成分别产出 10.08s 和 5.06s，默认值本身不稳定，需要专门抓包才能补上 `--duration`/`--model` 支持）。
 - **ApplyImageUpload/CommitImageUpload 走的是直连 `imagex.bytedanceapi.com`**，绕开了浏览器实际走的 `www.doubao.com/top/v1` 同源代理（该代理多一个未破解的 `s` 参数）。两条真实生成都验证直连可行，但如果 ByteDance 未来收紧非同源直连权限，需要回来补上 `s` 参数的算法。
-- **失败态识别不完整**：`pollVideo` 目前只认 `ext.ai_creation_res_code !== '0'` 为失败信号，未见过真实的风控/失败样本（两次生成都成功），失败分支未经真实验证。
+- ~~失败态识别不完整~~ **2026-07-07 已修复**：实战中命中了两个真实的永久 pending 样本（参考图内容审核不通过、当日免费次数用完），`pollVideo` 新增 `failureTextFromMessages`（文本关键词匹配）+ `rejectedInputMessage`（检查自己发的消息的顶层 `status` 字段）两条检测，已用两个真实 conversation_id 验证修复有效（详见 recon 笔记「终态失败识别」一节），零新增生成配额消耗（纯查询，两条会话都是已有的失败样本）。仍可能有未覆盖的失败样本（例如更严重的账号级风控），后续如再遇到应补充关键词/状态码。
 - **参考图上限**：豆包客户端有"不超过 10M"的校验（应该是服务端强制而非纯前端），手册未记录这一点；已在 upload.js/recon 里留痕，但 `submitVideo` 本身不做自动压缩——调用方需要自己保证 `--image` 文件在 10MB 以内（本次交付时手动把 16MB 的 manju 原图转成 3.2MB JPEG）。

@@ -329,6 +329,41 @@ export function videoFromBlocks(blocks) {
   return null;
 }
 
+// Terminal failures that only ever show up as bot text, no structured status
+// field — e.g. daily free-quota exhausted ("今日视频生成免费次数用完了...").
+const FAILURE_TEXT_PATTERNS = [/次数用完/, /审核不通过/, /无法生成/];
+
+export function failureTextFromMessages(messages) {
+  for (const msg of messages || []) {
+    for (const block of msg.content_block || []) {
+      if (block.block_type !== 10000) continue;
+      const text = block.content?.text_block?.text || '';
+      if (FAILURE_TEXT_PATTERNS.some((re) => re.test(text))) return text.trim();
+    }
+  }
+  return null;
+}
+
+// When doubao's own content review rejects the uploaded reference image, the
+// conversation never gets a bot reply at all — the only signal is our own
+// submitted message (user_type 1) coming back with a non-zero top-level
+// `status` (observed: 11, normal is 0). samantha_context's ref_images[].
+// review_status (2 = rejected) is folded in when present for a clearer reason.
+export function rejectedInputMessage(messages) {
+  for (const msg of messages || []) {
+    if (msg.user_type !== 1 || !msg.status) continue;
+    let reviewStatus;
+    try {
+      reviewStatus = JSON.parse(msg.ext?.samantha_context || '{}').query_context?.ref_images?.[0]?.review_status;
+    } catch {
+      reviewStatus = undefined;
+    }
+    const suffix = reviewStatus === 2 ? ' — reference image failed content review (图片审核不通过)' : '';
+    return `input message rejected (status=${msg.status})${suffix}`;
+  }
+  return null;
+}
+
 // Poll by re-fetching the conversation's message chain (same call the web
 // client uses to receive live pushes) and scanning for a finished video.
 export async function pollVideo(jobId) {
@@ -393,6 +428,10 @@ export async function pollVideo(jobId) {
       return { status: 'failed', reason: `ai_creation_res_code=${msg.ext.ai_creation_res_code}` };
     }
   }
+  const failureText = failureTextFromMessages(messages);
+  if (failureText) return { status: 'failed', reason: failureText };
+  const rejected = rejectedInputMessage(messages);
+  if (rejected) return { status: 'failed', reason: rejected };
   return { status: 'pending' };
 }
 
