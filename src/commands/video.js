@@ -1,22 +1,24 @@
 // webai video <provider> submit|status — direct-HTTP Veo video generation.
 import gemini from '../providers/gemini/index.js';
 import jimeng from '../providers/jimeng/index.js';
+import doubao from '../providers/doubao/index.js';
 import { WebaiError, PendingError, ContentRejectedError } from '../errors.js';
 import { resolveOutPath, timestamp } from './media-util.js';
 
-const PROVIDERS = { gemini, jimeng };
+const PROVIDERS = { gemini, jimeng, doubao };
 
 function usage() {
   process.stderr.write(`webai video — generate video (direct HTTP)
 
 Usage:
-  webai video <gemini|jimeng> submit "<prompt>" [--model <m>] [--aspect 16:9] [--duration 5] [--json]
-  webai video <gemini|jimeng> status <job-id> [--out <path>] [--once] [--json]
+  webai video <gemini|jimeng|doubao> submit "<prompt>" [--model <m>] [--aspect 16:9] [--duration 5] [--image <path>] [--json]
+  webai video <gemini|jimeng|doubao> status <job-id> [--out <path>] [--once] [--json]
 
 Flags:
   --model <m>    provider model (jimeng default jimeng-video-3.5-pro; 3.x-pro need membership)
-  --aspect <r>   aspect ratio, e.g. 16:9 (jimeng)
+  --aspect <r>   aspect ratio, e.g. 16:9 (jimeng, doubao)
   --duration <n> seconds (jimeng: 5/10/12 depending on model)
+  --image <path> reference image for image-to-video (doubao)
   --out <path>   (status) output file or directory (default: current dir)
   --once         (status) poll a single time; exit 3 if still generating
   --json         JSON output
@@ -29,7 +31,7 @@ export async function video(args) {
   const provider = PROVIDERS[providerId];
   if (!provider) {
     usage();
-    throw new WebaiError(`webai video: expected "gemini" or "jimeng" (got "${providerId || ''}")`);
+    throw new WebaiError(`webai video: expected "gemini", "jimeng", or "doubao" (got "${providerId || ''}")`);
   }
   if (action === 'submit') return submit(provider, providerId, args);
   if (action === 'status') return status(provider, providerId, args);
@@ -47,6 +49,7 @@ async function submit(provider, providerId, args) {
   if (args.model) subOpts.model = args.model;
   if (args.aspect) subOpts.ratio = args.aspect;
   if (args.duration) subOpts.duration = Number(args.duration);
+  if (args.image) subOpts.image = args.image;
   const { jobId, meta, video: ready } = await provider.submitVideo(prompt, subOpts);
   if (args.json) {
     process.stdout.write(

@@ -277,6 +277,30 @@ export function signSamanthaUrl(baseUrl, params, bodyJson) {
   return `${baseUrl}?${query}&${new URLSearchParams({ a_bogus: aBogus }).toString()}`;
 }
 
+// Query params for /im/chain/single (and other /im/* endpoints) — unlike the
+// samantha completion endpoint, these do NOT need msToken/a_bogus signing
+// (confirmed against a real captured request).
+export function buildImParams({ deviceId, webId, teaUuid, webTabId, pcVersion = '3.26.0' }) {
+  return {
+    version_code: '20800',
+    language: 'zh',
+    device_platform: 'web',
+    aid: '497858',
+    real_aid: '497858',
+    pkg_type: 'release_version',
+    device_id: deviceId || '',
+    pc_version: pcVersion,
+    web_id: webId || '',
+    tea_uuid: teaUuid || '',
+    region: 'CN',
+    sys_region: 'CN',
+    samantha_web: '1',
+    web_platform: 'browser',
+    'use-olympus-account': '1',
+    web_tab_id: webTabId || crypto.randomUUID(),
+  };
+}
+
 export function generateXFlowTrace() {
   const hex = (n) => [...crypto.randomBytes(n)].map((b) => b.toString(16).padStart(2, '0')).join('');
   return `00-${hex(16)}-${hex(8)}-01`;
