@@ -3,9 +3,12 @@
 //   submitVideo(prompt, opts)   -> { jobId, meta }
 //   pollVideo(jobId)            -> { status, video?, progress? }
 //   download(url, destPath, opts) -> localPath   (Gemini 206 polling semantics)
-import { writeFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { writeFileSync, mkdirSync, readdirSync, statSync, copyFileSync, rmSync, existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
 import { request, errorForStatus } from '../../http/client.js';
+import { ensureSession, evalSession } from '../../core/session.js';
+import { getAdapter } from '../../sites/index.js';
 import {
   getProvider,
   initGeminiSession,
@@ -172,42 +175,105 @@ export async function pollVideo(jobId) {
   return { status: 'pending' };
 }
 
-// Download a media URL to destPath. Handles Gemini's 206 "still rendering"
-// semantics by sleeping and retrying until the file materializes (200).
-export async function download(url, destPath, { poll206 = false, timeoutMs = 600_000, sleepMs = 10_000 } = {}) {
-  const rec = getProvider('gemini');
-  const cookieHeader = rec ? buildCookieHeader(rec.cookies) : '';
-  const deadline = Date.now() + timeoutMs;
-
-  while (true) {
-    const res = await request(url, {
-      headers: { 'User-Agent': UA, Referer: REFERER, Cookie: cookieHeader },
-      timeoutMs: 120_000,
-      retries: 2,
-    });
-    if (res.status === 200) {
-      const buf = Buffer.from(await res.arrayBuffer());
-      mkdirSync(dirname(destPath), { recursive: true });
-      writeFileSync(destPath, buf);
-      return destPath;
-    }
-    if (res.status === 206 && poll206) {
-      if (Date.now() > deadline) throw new WebaiError('Timed out waiting for video render (repeated 206).');
-      await new Promise((r) => setTimeout(r, sleepMs));
-      continue;
-    }
-    // 403 here is NOT an auth problem: the media CDN (contribution.usercontent.
-    // google.com) rejects plain undici at the TLS layer. Surface it as a generic
-    // error rather than mislabeling it as expired credentials.
-    if (res.status === 403) {
-      throw new WebaiError(
-        `gemini download refused (HTTP 403) by ${new URL(url).host}. This host enforces client ` +
-          'fingerprinting; direct-HTTP download is not currently supported for this URL.'
-      );
-    }
-    const httpErr = errorForStatus(res.status, `gemini download ${res.status}`);
-    throw httpErr || new WebaiError(`gemini download unexpected HTTP ${res.status}`);
+// Download a media URL to destPath.
+//
+// Google's media CDNs reject every headless HTTP client (undici, curl-impersonate
+// with a real-Chrome JA3, …) with 403 — they validate a Chrome binary/device
+// signature (x-browser-validation) that cannot be forged off-browser. So we drive
+// the user's real logged-in Chrome via opencli and take the bytes from there:
+//   - contribution.usercontent.google.com (video): sends credentialed CORS headers,
+//     so an in-page fetch() can read the bytes directly (exfil as base64).
+//   - lh3.googleusercontent.com (image): sends NO CORS headers, so fetch/canvas are
+//     blocked; instead we trigger Chrome's native download and read it back from
+//     ~/Downloads.
+// Generation stays pure-HTTP; only this byte-fetch step needs the browser.
+export async function download(url, destPath, _opts = {}) {
+  mkdirSync(dirname(destPath), { recursive: true });
+  const host = new URL(url).host;
+  if (host.endsWith('usercontent.google.com')) {
+    return downloadViaBrowserFetch(url, destPath);
   }
+  return downloadViaBrowserNative(url, destPath);
+}
+
+// In-page fetch (credentials included) → arrayBuffer → base64, exfiltrated back to
+// Node. Works for hosts that return credentialed CORS headers (video CDN).
+async function downloadViaBrowserFetch(url, destPath) {
+  const { session, tabId } = await ensureSession(getAdapter('gemini'));
+  const js = `(async () => {
+    for (let a = 0; a < 3; a++) {
+      try {
+        const r = await fetch(${JSON.stringify(url)}, { credentials: 'include' });
+        if (!r.ok) { if (a < 2) { await new Promise((x) => setTimeout(x, 1500)); continue; } return { ok: false, status: r.status }; }
+        const buf = new Uint8Array(await r.arrayBuffer());
+        let bin = ''; const CH = 8192;
+        for (let i = 0; i < buf.length; i += CH) bin += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
+        return { ok: true, len: buf.length, b64: btoa(bin) };
+      } catch (e) { if (a < 2) { await new Promise((x) => setTimeout(x, 1500)); continue; } return { ok: false, error: String(e).slice(0, 150) }; }
+    }
+  })()`;
+  const r = evalSession(session, tabId, js);
+  if (!r || !r.ok) {
+    const why = r ? r.error || `HTTP ${r.status}` : 'no result from browser';
+    throw new WebaiError(`gemini download via browser failed (${new URL(url).host}): ${why}`);
+  }
+  const bytes = Buffer.from(r.b64, 'base64');
+  if (bytes.length !== r.len) {
+    throw new WebaiError(`gemini download size mismatch (${bytes.length} != ${r.len}) — transfer truncated.`);
+  }
+  writeFileSync(destPath, bytes);
+  return destPath;
+}
+
+// googleusercontent (lh3) doesn't allow programmatic reads, so let Chrome download
+// the file natively and pick it up from ~/Downloads. `=s0-d` forces full-resolution
+// download disposition (attachment) so navigation saves rather than renders.
+function forceDownloadUrl(url) {
+  const replaced = url.replace(/=s\d+(-rj)?$/, '=s0-d');
+  if (replaced !== url) return replaced;
+  if (/=s\d/.test(url)) return url;
+  return url + '=s0-d';
+}
+
+async function downloadViaBrowserNative(url, destPath, { timeoutMs = 90_000 } = {}) {
+  const dlDir = join(homedir(), 'Downloads');
+  const dlUrl = forceDownloadUrl(url);
+  const before = new Set(readdirSync(dlDir));
+  const { session, tabId } = await ensureSession(getAdapter('gemini'));
+  // Trigger exactly ONE download via an anchor click. The =s0-d attachment
+  // disposition makes this a download (not a navigation), so the tab stays put.
+  // A single download needs no permission; issuing a second one (e.g. an iframe
+  // too) is what makes Chrome prompt "allow multiple downloads?".
+  const js = `(() => {
+    const a = document.createElement('a'); a.href = ${JSON.stringify(dlUrl)}; a.download = 'gemini_download';
+    document.body.appendChild(a); a.click();
+    return true;
+  })()`;
+  evalSession(session, tabId, js);
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 500));
+    const fresh = readdirSync(dlDir).filter((f) => !before.has(f) && !f.endsWith('.crdownload'));
+    for (const f of fresh) {
+      const p = join(dlDir, f);
+      if (!existsSync(p)) continue;
+      const s1 = statSync(p).size;
+      await new Promise((r) => setTimeout(r, 300));
+      if (!existsSync(p)) continue;
+      // Stable size + non-empty ⇒ download finished.
+      if (s1 > 0 && statSync(p).size === s1) {
+        copyFileSync(p, destPath);
+        rmSync(p, { force: true });
+        return destPath;
+      }
+    }
+  }
+  throw new WebaiError(
+    `gemini image download timed out: no file appeared in ${dlDir}. ` +
+      'On first use Chrome may ask to allow automatic downloads from gemini.google.com — click Allow, then retry. ' +
+      'Also ensure Chrome is signed in and its download folder is the default ~/Downloads.'
+  );
 }
 
 export const gemini = {

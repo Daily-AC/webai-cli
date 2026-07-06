@@ -60,6 +60,8 @@ function parseArgs(argv) {
     else if (a === '--profile') args.profile = argv[++i];
     else if (a === '--model') args.model = argv[++i];
     else if (a === '--aspect') args.aspect = argv[++i];
+    else if (a === '--duration') args.duration = argv[++i];
+    else if (a === '--resolution') args.resolution = argv[++i];
     else if (a === '--once') args.once = true;
     else if (a === '-h' || a === '--help') args.help = true;
     else args.positional.push(a);

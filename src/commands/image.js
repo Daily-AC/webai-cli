@@ -1,15 +1,17 @@
 // webai image <provider> "<prompt>" — direct-HTTP image generation.
 import gemini from '../providers/gemini/index.js';
+import jimeng from '../providers/jimeng/index.js';
+import doubao from '../providers/doubao/index.js';
 import { WebaiError } from '../errors.js';
 import { resolveOutPath, timestamp } from './media-util.js';
 
-const PROVIDERS = { gemini };
+const PROVIDERS = { gemini, jimeng, doubao };
 
 function usage() {
   process.stderr.write(`webai image — generate an image (direct HTTP)
 
 Usage:
-  webai image gemini "<prompt>" [--out <path|dir>] [--json]
+  webai image <gemini|jimeng|doubao> "<prompt>" [--aspect 1:1] [--out <path|dir>] [--json]
 
 Flags:
   --out <path>   Output file or directory (default: current dir)
@@ -31,9 +33,16 @@ export async function image(args) {
   }
 
   const started = Date.now();
-  const { images, meta } = await provider.generateImage(prompt, {});
+  const genOpts = {};
+  if (args.model) genOpts.model = args.model;
+  if (args.aspect) genOpts.ratio = args.aspect;
+  if (args.resolution) genOpts.resolution = args.resolution;
+  const { images, meta } = await provider.generateImage(prompt, genOpts);
   const first = images[0];
-  const dest = resolveOutPath(args.out, `Gemini_Image_${timestamp()}.png`);
+  // Gemini serves JPEG (lh3 -rj); Jimeng/Doubao byteimg CDNs serve PNG.
+  const ext = providerId === 'gemini' ? 'jpg' : 'png';
+  const nameProvider = providerId.charAt(0).toUpperCase() + providerId.slice(1);
+  const dest = resolveOutPath(args.out, `${nameProvider}_Image_${timestamp()}.${ext}`);
   const path = await provider.download(first.url, dest, { poll206: true, timeoutMs: 180_000 });
   const elapsedMs = Date.now() - started;
 
