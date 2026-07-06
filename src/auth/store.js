@@ -95,10 +95,26 @@ function chromeSafeStorageKey() {
   }
 }
 
-// Read `.google.com` cookies from a Chrome profile and store them under the
-// given provider id. Copies the (possibly WAL-locked) Cookies DB to a temp path
-// and opens it read-only, so Chrome can stay running.
-export function importFromChrome({ profile = 'Profile 1', provider = 'gemini', hostFilter = '.google.com' } = {}) {
+// Per-provider Chrome cookie import: which host_key suffix to match and which
+// cookie must be present for the login to count. All matching cookies are stored
+// (keyed by name) regardless; `require` is just a sanity gate.
+export const CHROME_IMPORT_SPECS = {
+  gemini: { hostFilter: '.google.com', require: '__Secure-1PSID', loginUrl: 'gemini.google.com' },
+  jimeng: { hostFilter: 'jianying.com', require: 'sessionid', loginUrl: 'jimeng.jianying.com' },
+  doubao: { hostFilter: 'doubao.com', require: 'sessionid', loginUrl: 'doubao.com' },
+};
+
+// Read a provider's cookies from a Chrome profile and store them under that
+// provider id. Copies the (possibly WAL-locked) Cookies DB to a temp path and
+// opens it read-only, so Chrome can stay running.
+export function importFromChrome({ profile = 'Profile 1', provider = 'gemini', hostFilter } = {}) {
+  const spec = CHROME_IMPORT_SPECS[provider];
+  if (!spec) {
+    throw new WebaiError(
+      `webai auth: unknown provider "${provider}" (expected one of: ${Object.keys(CHROME_IMPORT_SPECS).join(', ')})`
+    );
+  }
+  const filter = hostFilter || spec.hostFilter;
   const src = chromeCookiesPath(profile);
   if (!existsSync(src)) {
     throw new AuthError(`Chrome Cookies DB not found for profile "${profile}" at ${src}`);
@@ -121,7 +137,7 @@ export function importFromChrome({ profile = 'Profile 1', provider = 'gemini', h
     db = new DatabaseSync(tmp, { readOnly: true });
     const rows = db
       .prepare('SELECT host_key, name, encrypted_value FROM cookies WHERE host_key LIKE ?')
-      .all('%' + hostFilter);
+      .all('%' + filter);
     for (const r of rows) {
       const val = decryptChromeCookie(Buffer.from(r.encrypted_value), key);
       if (val) cookies[r.name] = val;
@@ -132,10 +148,10 @@ export function importFromChrome({ profile = 'Profile 1', provider = 'gemini', h
     try { db?.close(); } catch { /* ignore */ }
   }
 
-  if (!cookies['__Secure-1PSID']) {
+  if (!cookies[spec.require]) {
     throw new AuthError(
-      `No __Secure-1PSID cookie found for .google.com in Chrome profile "${profile}". ` +
-        'Log in to gemini.google.com in that profile first.'
+      `No ${spec.require} cookie found for ${filter} in Chrome profile "${profile}". ` +
+        `Log in to ${spec.loginUrl} in that profile first.`
     );
   }
 
@@ -144,7 +160,15 @@ export function importFromChrome({ profile = 'Profile 1', provider = 'gemini', h
     profile,
     importedAt: new Date().toISOString(),
   });
-  return { count: Object.keys(cookies).length, has1PSID: true, has1PSIDTS: !!cookies['__Secure-1PSIDTS'] };
+  return {
+    count: Object.keys(cookies).length,
+    provider,
+    require: spec.require,
+    hasRequire: true,
+    // Gemini-specific extras (kept for the existing auth CLI message).
+    has1PSID: !!cookies['__Secure-1PSID'],
+    has1PSIDTS: !!cookies['__Secure-1PSIDTS'],
+  };
 }
 
 // ---- cookie header helpers ----
