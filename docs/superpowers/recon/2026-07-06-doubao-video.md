@@ -63,6 +63,15 @@ Content-Type: application/json; encoding=utf-8   # 注意不是标准 "applicati
 
 **踩坑记录（本次最费时的一步）**：如果 `Content-Type` 写成标准的 `application/json`（没有 `; encoding=utf-8`），服务端返回 `{status_code:712012002, status_desc:"不支持编码类型"}`，但 `downlink_body` 是空对象 `{}`——如果轮询代码只看 `messages` 数组是否为空而不检查 `status_code`，会把这个错误误判成"还在生成中"，导致轮询 10 分钟超时都拿不到结果（本次实际就是这样踩的坑：视频其实几分钟前就生成好了，轮询代码一直在用错误的 Content-Type 无声地失败）。**修复**：Content-Type 必须精确写 `application/json; encoding=utf-8`；轮询代码必须显式检查响应的 `status_code` 并在非 0 时抛错，不能把"解析不出消息"和"还在生成"混为一谈。
 
+### 4. 终态失败识别（2026-07-07 补，实战两个真实卡死样本）
+
+`pollVideo` 原实现只认"出现带 `video.status===3` 的 creation block"为就绪，其余一律当作"还在生成中"——但至少有两类真实终态失败永远不会产出 creation block，会导致轮询无限期挂着：
+
+- **参考图内容审核不通过**：会话里**永远不会有 bot 回复**（`has_more:false`，`messages` 数组只有我们自己发的那一条）。唯一信号是这条自己发的消息（`user_type:1`）顶层 `status` 字段非 0（真实样本 `status:11`，正常值是 0），以及 `ext.samantha_context`（JSON 字符串）里 `query_context.ref_images[0].review_status===2`（正常/未处理是别的值）。**网页 UI 上看到的"图片审核不通过"灰色占位文案是前端根据这个状态码本地渲染的，`/im/chain/single` 响应里并不会出现这几个字**——不要用字符串匹配去找这四个字，要认 `status` 字段。
+- **当日免费生成次数用完**：这种反而有 bot 文本回复（`content_block` 里 `block_type:10000`），文案含"次数用完"（真实样本："今日视频生成免费次数用完了，暂时无法使用专业版功能..."，并带一个开通套餐的链接）。
+
+修复：`pollVideo` 在扫描 `videoFromBlocks`/`ai_creation_res_code` 之后，再过一遍 `failureTextFromMessages`（文本关键词：次数用完/审核不通过/无法生成）和 `rejectedInputMessage`（检查我们自己发的消息的顶层 `status`），任一命中就返回 `{status:'failed', reason}`，不再无限期挂 pending。
+
 ### opencli 工具本身的坑（与豆包协议无关，记录以防下次复现）
 
 - `opencli browser <s> upload <ref> <file>` 在 v1.8.4 上稳定报 `SyntaxError: Identifier 'markerAttr' has already been declared`；升级到 v1.8.6 后变成 CDP 级 `{"code":-32000,"message":"Not allowed"}`（`DOM.setFileInputFiles` 在部分 Chrome/扩展调试会话下被拒绝，是已知的 CDP 限制，非豆包页面问题）。

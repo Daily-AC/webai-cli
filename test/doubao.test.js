@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sm3Digest, customBase64, longABogus, buildUrlParams, buildImParams, fakeMsToken } from '../src/providers/doubao/sign.js';
-import { buildVideoBody, videoFromBlocks } from '../src/providers/doubao/index.js';
+import { buildVideoBody, videoFromBlocks, failureTextFromMessages, rejectedInputMessage } from '../src/providers/doubao/index.js';
 import { crc32 } from '../src/providers/doubao/upload.js';
 import { signAws4Request } from '../src/providers/doubao/aws4.js';
 
@@ -91,6 +91,60 @@ test('videoFromBlocks finds a ready (status 3) video creation and ignores others
 
 test('crc32 matches the standard check value for "123456789"', () => {
   assert.equal(crc32(Buffer.from('123456789')), 'cbf43926');
+});
+
+// Fixtures below are trimmed from two real /im/chain/single responses for
+// jobs that never produced a video (2026-07-06 field report) — see
+// docs/superpowers/recon/2026-07-06-doubao-video.md for the full captures.
+
+test('failureTextFromMessages detects a daily-quota-exhausted bot reply', () => {
+  const messages = [
+    {
+      user_type: 2,
+      status: 0,
+      content_block: [
+        {
+          block_type: 10000,
+          content: { text_block: { text: '今日视频生成免费次数用完了，暂时无法使用专业版功能，先使用快速模式和我聊聊别的吧。' } },
+        },
+      ],
+    },
+  ];
+  assert.match(failureTextFromMessages(messages), /次数用完/);
+});
+
+test('failureTextFromMessages returns null for a normal in-progress reply', () => {
+  const messages = [
+    {
+      user_type: 2,
+      status: 0,
+      content_block: [{ block_type: 10000, content: { text_block: { text: '这就为您生成视频，请稍等。' } } }],
+    },
+  ];
+  assert.equal(failureTextFromMessages(messages), null);
+});
+
+test('rejectedInputMessage detects a content-review-rejected reference image (no bot reply ever arrives)', () => {
+  const messages = [
+    {
+      user_type: 1,
+      status: 11, // observed real value; 0 is normal
+      content_block: [],
+      ext: {
+        samantha_context: JSON.stringify({
+          query_context: { ref_images: [{ image_token: 'tos-cn-i-a9rns2rl98/abc.jpg', review_status: 2 }] },
+        }),
+      },
+    },
+  ];
+  const reason = rejectedInputMessage(messages);
+  assert.match(reason, /status=11/);
+  assert.match(reason, /图片审核不通过/);
+});
+
+test('rejectedInputMessage returns null when the submitted message has normal status', () => {
+  const messages = [{ user_type: 1, status: 0, ext: {} }];
+  assert.equal(rejectedInputMessage(messages), null);
 });
 
 test('signAws4Request produces a well-formed, deterministic Authorization header', () => {
