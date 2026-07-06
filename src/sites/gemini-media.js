@@ -236,15 +236,31 @@ const CHUNK_BYTES = 500_000;
 // Stage a reference image into the (video) composer and wait for its resumable
 // upload to finish before the prompt is submitted.
 export async function stageImage(session, tabId, base64, name, mime) {
-  // The composer toolbar (and its reference-image trigger) renders a beat
-  // after the composer itself, so poll for it before tagging.
+  // July-2026 UI: /videos redirects to /app; the video surface is entered via
+  // the sidebar "Videos" nav item, and the reference-image uploader moved into
+  // the composer's "Upload & tools" (+) menu → "Upload files".
+  evalSession(session, tabId, `(() => {
+    const el = Array.from(document.querySelectorAll('a,button,[role=link],[role=button],div'))
+      .find((e) => (e.textContent || '').trim() === 'Videos' && e.getBoundingClientRect().width > 0);
+    if (el) el.click();
+    return true;
+  })()`);
+  await sleep(2500);
+  // Open the (+) menu with a trusted CDP click, then tag the "Upload files" item.
+  runOpencli(['browser', session, 'click', '--tab', tabId, 'button[aria-label="Upload & tools"]']);
   let tagged = false;
-  for (let i = 0; i < 30; i++) {
-    const tag = evalSession(session, tabId, tagImageButtonJs());
+  for (let i = 0; i < 20; i++) {
+    const tag = evalSession(session, tabId, `(() => {
+      const items = Array.from(document.querySelectorAll('[role=menuitem],[mat-menu-item],button,li'));
+      const it = items.find((e) => /upload files/i.test(((e.getAttribute('aria-label') || '') + ' ' + (e.textContent || ''))));
+      if (!it) return { ok: false };
+      it.setAttribute('data-webai-imgbtn', '1');
+      return { ok: true };
+    })()`);
     if (tag && tag.ok) { tagged = true; break; }
     await sleep(500);
   }
-  if (!tagged) throw new Error('gemini: reference-image button not found in video composer');
+  if (!tagged) throw new Error('gemini: "Upload files" item not found in Upload & tools menu');
   // Click via opencli (CDP native click = trusted gesture); the app then creates
   // its <input type=file> and fires .click() on it, which our hook swallows and
   // captures. A programmatic el.click() does NOT open the picker / create input.
