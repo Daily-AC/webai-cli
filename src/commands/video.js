@@ -74,7 +74,7 @@ async function status(provider, providerId, args) {
     st = await provider.pollVideo(jobId);
     if (st.status === 'ready') break;
     if (st.status === 'failed') {
-      throw new ContentRejectedError(`Gemini video generation failed: ${st.reason || 'unknown'}`);
+      throw new ContentRejectedError(`${providerId} video generation failed: ${st.reason || 'unknown'}`);
     }
     // pending
     if (args.once) {
