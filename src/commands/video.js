@@ -2,7 +2,7 @@
 import gemini from '../providers/gemini/index.js';
 import jimeng from '../providers/jimeng/index.js';
 import doubao from '../providers/doubao/index.js';
-import { WebaiError, PendingError, ContentRejectedError } from '../errors.js';
+import { WebaiError, PendingError, ContentRejectedError, QuotaError } from '../errors.js';
 import { resolveOutPath, timestamp } from './media-util.js';
 
 const PROVIDERS = { gemini, jimeng, doubao };
@@ -74,7 +74,14 @@ async function status(provider, providerId, args) {
     st = await provider.pollVideo(jobId);
     if (st.status === 'ready') break;
     if (st.status === 'failed') {
-      throw new ContentRejectedError(`${providerId} video generation failed: ${st.reason || 'unknown'}`);
+      const reason = st.reason || 'unknown';
+      // Daily free-quota exhaustion surfaces as a failed status with bot text
+      // like "今日视频生成免费次数用完了..." — that's quota (exit 5), not a
+      // content rejection (exit 4).
+      if (/次数用完|quota/i.test(reason)) {
+        throw new QuotaError(`${providerId} video generation failed: ${reason}`);
+      }
+      throw new ContentRejectedError(`${providerId} video generation failed: ${reason}`);
     }
     // pending
     if (args.once) {
