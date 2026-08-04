@@ -27,6 +27,20 @@ export class AuthError extends WebaiError {
   }
 }
 
+// A provider endpoint returned a Cloudflare challenge instead of reaching the
+// authenticated application. This is an upstream transport block, not proof
+// that the submitted credential is invalid.
+export class CloudflareChallengeError extends WebaiError {
+  constructor(message, { provider = '', stage = '', status = null } = {}) {
+    super(message);
+    this.name = 'CloudflareChallengeError';
+    this.code = 'cloudflare_blocked';
+    if (provider) this.provider = provider;
+    if (stage) this.stage = stage;
+    if (Number.isInteger(status) && status >= 100 && status <= 599) this.status = status;
+  }
+}
+
 // Daily / per-model generation quota reached.
 export class QuotaError extends WebaiError {
   constructor(message) {

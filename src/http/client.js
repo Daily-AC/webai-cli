@@ -63,7 +63,7 @@ export async function request(
 export function errorForStatus(status, context = '', bodySnippet = '') {
   if (status === 401 || status === 403) {
     return new AuthError(
-      `${context || 'request'} unauthorized (HTTP ${status}). Cookies are likely expired — run: webai auth import chrome`
+      `${context || 'request'} unauthorized (HTTP ${status}). Cookies are likely expired; re-import credentials with webai auth import <provider> --stdin or --file.`
     );
   }
   if (status >= 400) {

@@ -39,19 +39,21 @@ function reqid() {
 // Load cookies + a fresh init session, rotating 1PSIDTS once on auth failure.
 async function loadSession() {
   const rec = getProvider('gemini');
-  if (!rec || !rec.cookies || !rec.cookies['__Secure-1PSID']) {
+  const credentials = rec?.cookieJar || rec?.cookies;
+  if (!credentials || !buildCookieHeader(credentials, { only: ['__Secure-1PSID'], url: ENDPOINTS.INIT })) {
     throw new AuthError('No Gemini credentials found. Run: webai auth import chrome');
   }
   try {
-    const session = await initGeminiSession(rec.cookies);
-    return { ...session, cookies: rec.cookies };
+    const session = await initGeminiSession(credentials);
+    return { ...session, cookies: credentials };
   } catch (err) {
     if (err instanceof AuthError) {
       // 1PSIDTS may just be stale — rotate once and retry.
       await rotate1PSIDTS('gemini');
       const rec2 = getProvider('gemini');
-      const session = await initGeminiSession(rec2.cookies);
-      return { ...session, cookies: rec2.cookies };
+      const rotatedCredentials = rec2?.cookieJar || rec2?.cookies;
+      const session = await initGeminiSession(rotatedCredentials);
+      return { ...session, cookies: rotatedCredentials };
     }
     throw err;
   }
@@ -73,7 +75,7 @@ async function streamGenerate(prompt, session) {
     method: 'POST',
     headers: {
       ...buildGenerateHeaders({ uuid }),
-      Cookie: buildCookieHeader(session.cookies),
+      Cookie: buildCookieHeader(session.cookies, { url }),
       Referer: REFERER,
     },
     body,
@@ -157,7 +159,7 @@ export async function pollVideo(jobId) {
       Origin: 'https://gemini.google.com',
       Referer: REFERER,
       'X-Same-Domain': '1',
-      Cookie: buildCookieHeader(session.cookies),
+      Cookie: buildCookieHeader(session.cookies, { url }),
     },
     body: buildBatchExecuteBody({ rpcid: GRPC.READ_CHAT, payload, at: session.at }),
     timeoutMs: 60_000,

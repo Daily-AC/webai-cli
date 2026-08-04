@@ -21,10 +21,14 @@ const RATIOS = new Set(['1:1', '4:3', '3:4', '16:9', '9:16']);
 
 function account() {
   const rec = getProvider('doubao');
-  if (!rec || !rec.cookies || !rec.cookies.sessionid) {
+  if (!rec || !providerCookieHeader(rec, API_BASE).match(/(?:^|;\s*)sessionid=/)) {
     throw new AuthError('No Doubao credentials found. Run: webai auth import chrome doubao');
   }
   return rec;
+}
+
+function providerCookieHeader(rec, url) {
+  return buildCookieHeader(rec.cookieJar || rec.cookies, { url });
 }
 
 // device_id / web_id / tea_uuid come from doubao.com localStorage. Read once via
@@ -152,7 +156,7 @@ export async function generateImage(prompt, opts = {}) {
   const rec = account();
   const ratio = RATIOS.has(opts.ratio) ? opts.ratio : '1:1';
   const dev = getDeviceParams(rec);
-  const cookie = buildCookieHeader(rec.cookies);
+  const cookie = providerCookieHeader(rec, COMPLETION_URL);
 
   const body = buildImageBody(prompt, ratio);
   const bodyJson = JSON.stringify(body);
@@ -258,7 +262,7 @@ export function buildVideoBody(prompt, { attachment, ratio } = {}) {
 export async function submitVideo(prompt, opts = {}) {
   const rec = account();
   const dev = getDeviceParams(rec);
-  const cookie = buildCookieHeader(rec.cookies);
+  const cookie = providerCookieHeader(rec, COMPLETION_URL);
 
   let attachment = null;
   if (opts.image) {
@@ -369,7 +373,7 @@ export function rejectedInputMessage(messages) {
 export async function pollVideo(jobId) {
   const rec = account();
   const dev = getDeviceParams(rec);
-  const cookie = buildCookieHeader(rec.cookies);
+  const cookie = providerCookieHeader(rec, IM_CHAIN_SINGLE_URL);
 
   const body = JSON.stringify({
     cmd: 3100,
