@@ -30,6 +30,11 @@ test('buildInner does NOT include a deep-research "!" anti-abuse token', () => {
   assert.equal(inner[4], null, 'deep-research slot 4 stays null');
 });
 
+test('buildInner only sets the temporary-chat flag when requested', () => {
+  assert.equal(buildInner({ prompt: 'persistent' })[45], null);
+  assert.equal(buildInner({ prompt: 'ephemeral', temporary: true })[45], 1);
+});
+
 test('buildFreq wraps inner as [null, JSON(inner)]', () => {
   const inner = buildInner({ prompt: 'x', uuid: 'U' });
   const freq = buildFreq(inner);

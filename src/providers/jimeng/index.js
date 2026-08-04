@@ -36,20 +36,21 @@ const IMAGE_REFERER = `${BASE_URL}/ai-tool/generate?type=image`;
 // Random web id per process, mirroring the reference client.
 const WEB_ID = String(Math.floor(Math.random() * 8e17) + 7e18);
 
-function cookieHeader() {
+function cookieHeader(url = BASE_URL) {
   const rec = getProvider('jimeng');
-  if (!rec || !rec.cookies || !rec.cookies.sessionid) {
+  const cookie = rec ? buildCookieHeader(rec.cookieJar || rec.cookies, { url }) : '';
+  if (!/(?:^|;\s*)sessionid=/.test(cookie)) {
     throw new AuthError('No Jimeng credentials found. Run: webai auth import chrome jimeng');
   }
-  return buildCookieHeader(rec.cookies);
+  return cookie;
 }
 
 // POST a JSON body to a jimeng API path with default query params + signed headers.
 async function apiPost(path, dataObj, { noDefaultParams = false, referer, timeoutMs = 60_000 } = {}) {
-  const cookie = cookieHeader();
   const params = noDefaultParams ? {} : defaultQuery(WEB_ID);
   const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString();
   const url = `${BASE_URL}${path}${qs ? `?${qs}` : ''}`;
+  const cookie = cookieHeader(url);
   const res = await request(url, {
     method: 'POST',
     headers: buildHeaders({ uriPath: path, cookieHeader: cookie, referer }),

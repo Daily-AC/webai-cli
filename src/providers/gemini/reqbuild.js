@@ -43,6 +43,7 @@ export function buildInner({
   language = 'en',
   metadata = DEFAULT_METADATA,
   reqFileData = null,
+  temporary = false,
   uuid = randomUUID().toUpperCase(),
 } = {}) {
   if (!prompt) throw new Error('reqbuild: prompt is required');
@@ -62,6 +63,7 @@ export function buildInner({
   inner[27] = 1;
   inner[30] = [4];
   inner[41] = [1];
+  if (temporary) inner[45] = 1;
   inner[53] = 0;
   inner[59] = uuid;
   inner[61] = [];
@@ -76,10 +78,10 @@ export function buildFreq(inner) {
 }
 
 // application/x-www-form-urlencoded body: f.req + at (SNlM0e access token).
-export function buildGenerateBody({ prompt, at, language, metadata, uuid, reqFileData } = {}) {
+export function buildGenerateBody({ prompt, at, language, metadata, uuid, reqFileData, temporary = false } = {}) {
   if (!at) throw new Error('reqbuild: access token (at / SNlM0e) is required');
   const usedUuid = uuid || randomUUID().toUpperCase();
-  const inner = buildInner({ prompt, language, metadata, reqFileData, uuid: usedUuid });
+  const inner = buildInner({ prompt, language, metadata, reqFileData, temporary, uuid: usedUuid });
   const params = new URLSearchParams();
   params.set('f.req', buildFreq(inner));
   params.set('at', at);
