@@ -6,11 +6,18 @@
   "bin": {
     "webai": "./bin/webai.js"
   },
+  "scripts": {
+    "test": "node --test"
+  },
   "engines": {
     "node": ">=20"
   },
   "files": [
     "bin",
-    "src"
-  ]
+    "src",
+    "docs/cliproxyapi.md"
+  ],
+  "dependencies": {
+    "impit": "0.14.3"
+  }
 }

@@ -1,0 +1,7 @@
+data: {"event_data":"{\"message_id\":\"<redacted-id>\",\"local_message_id\":\"<redacted-id>\",\"conversation_id\":\"<redacted-id>\",\"local_conversation_id\":\"<redacted-id>\",\"section_id\":\"<redacted-id>\",\"message_index\":1,\"conversation_type\":5}","event_id":"<redacted-id>","event_type":2002}
+
+data: {"event_data":"{\"message\":{\"content_type\":2001,\"content\":\"{\\\"text\\\":\\\"dou\\\"}\",\"id\":\"<redacted-id>\"},\"message_id\":\"<redacted-id>\",\"local_message_id\":\"<redacted-id>\",\"conversation_id\":\"<redacted-id>\",\"local_conversation_id\":\"<redacted-id>\",\"section_id\":\"<redacted-id>\",\"reply_id\":\"<redacted-id>\",\"is_delta\":true,\"status\":4,\"input_content_type\":2001,\"message_index\":2,\"bot_id\":\"7338286299411103781\"}","event_id":"<redacted-id>","event_type":2001}
+
+data: {"event_data":"{\"message\":{\"content_type\":2001,\"content\":\"{}\",\"id\":\"<redacted-id>\"},\"message_id\":\"<redacted-id>\",\"local_message_id\":\"<redacted-id>\",\"conversation_id\":\"<redacted-id>\",\"local_conversation_id\":\"<redacted-id>\",\"section_id\":\"<redacted-id>\",\"reply_id\":\"<redacted-id>\",\"is_delta\":true,\"status\":1,\"is_finish\":true,\"message_action_bar\":{},\"input_content_type\":2001,\"message_index\":2,\"bot_id\":\"7338286299411103781\",\"tts_content\":\"doubao-fixture-shape-ok\"}","event_id":"<redacted-id>","event_type":2001}
+
+data: {"event_data":"{}","event_id":"<redacted-id>","event_type":2003}

@@ -1,0 +1,3 @@
+event: gateway-error
+data: {"code":"Internal","message":"upstream rejected request: code=710012000 [user invalid]"}
+
