@@ -1,0 +1,4 @@
+)]}'
+
+440
+[["wrb.fr","vidz","[[[null,null,null,[[[\"rc_vid\",[\"Your video is ready!\\nhttp://googleusercontent.com/generated_video_content/0\"],null,null,null,null,null,null,[2],null,null,null,[{\"60\":[[[[[null,null,null,null,null,null,null,[\"https://lh3.googleusercontent.com/gg/THUMB\",\"https://contribution.usercontent.google.com/download?c=MP4TOKEN\",\"https://lh3.googleusercontent.com/gg/PREVIEW\"]]]]]]}]]]]]]]",null,null,null,"generic"]]
